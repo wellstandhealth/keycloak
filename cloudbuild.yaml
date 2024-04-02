@@ -1,0 +1,17 @@
+steps:
+  - name: 'maven:3-openjdk-18-slim'
+    id: 'java-build'
+    waitFor: [ 'keycloak-java-build' ]
+    args: [ 'mvn', '-D', 'skipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-P', 'distribution' ]
+
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: /bin/bash
+    waitFor: [ 'keycloak-java-build' ]
+    id: 'keycloak-docker-build'
+    args: [ '-c', 'docker build -t us-docker.pkg.dev/non-production-381217/wellstand-docker/keycloak:develop-123.123 /workspace' ]
+
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: /bin/bash
+    id: 'upload-keycloak-container'
+    waitFor: ['keycloak-docker-build']
+    args: ['-c', 'docker push us-docker.pkg.dev/non-production-381217/wellstand-docker/keycloak:develop-123.123']
