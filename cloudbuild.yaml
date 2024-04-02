@@ -1,7 +1,7 @@
 steps:
   - name: 'maven:3-openjdk-18-slim'
     id: 'keycloak-java-build'
-    args: [ 'mvn', '-DskipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-Pdistribution' ]
+    args: [ 'workspace/mvnw', '-DskipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-Pdistribution' ]
 
   - name: gcr.io/cloud-builders/docker
     entrypoint: /bin/bash
