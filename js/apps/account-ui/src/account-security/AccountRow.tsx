@@ -22,7 +22,11 @@ type AccountRowProps = {
   refresh: () => void;
 };
 
-export const AccountRow = ({ account, isLinked = false }: AccountRowProps) => {
+export const AccountRow = ({
+  account,
+  isLinked = false,
+  refresh,
+}: AccountRowProps) => {
   const { t } = useTranslation();
   const context = useEnvironment();
   const { addAlert, addError } = useAlerts();
@@ -31,6 +35,7 @@ export const AccountRow = ({ account, isLinked = false }: AccountRowProps) => {
     try {
       await unLinkAccount(context, account);
       addAlert(t("unLinkSuccess"));
+      refresh();
     } catch (error) {
       addError(t("unLinkError", { error }).toString());
     }
@@ -51,7 +56,10 @@ export const AccountRow = ({ account, isLinked = false }: AccountRowProps) => {
       key={account.providerName}
       aria-label={t("linkedAccounts")}
     >
-      <DataListItemRow key={account.providerName}>
+      <DataListItemRow
+        key={account.providerName}
+        data-testid={`linked-accounts/${account.providerName}`}
+      >
         <DataListItemCells
           dataListCells={[
             <DataListCell key="idp">

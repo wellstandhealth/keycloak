@@ -72,6 +72,7 @@ import org.keycloak.storage.UserStorageProvider;
 import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.Assert;
 import org.keycloak.testsuite.admin.ApiUtil;
+import org.keycloak.testsuite.broker.util.SimpleHttpDefault;
 import org.keycloak.testsuite.exportimport.ExportImportUtil;
 import org.keycloak.testsuite.runonserver.RunHelpers;
 import org.keycloak.testsuite.util.OAuthClient;
@@ -82,6 +83,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -409,10 +411,16 @@ public abstract class AbstractMigrationTest extends AbstractKeycloakTest {
             testUnmanagedAttributePolicySet(migrationRealm2, null);
             testHS512KeyCreated(migrationRealm);
             testHS512KeyCreated(migrationRealm2);
+            testClientAttributes(migrationRealm);
         }
         if (testLdapUseTruststoreSpiMigration) {
             testLdapUseTruststoreSpiMigration(migrationRealm2);
         }
+    }
+
+    protected void testMigrationTo25_0_0() {
+        // check that all expected scopes exist in the migrated realm.
+        testRealmDefaultClientScopes(migrationRealm);
     }
 
     protected void testDeleteAccount(RealmResource realm) {
@@ -1107,6 +1115,10 @@ public abstract class AbstractMigrationTest extends AbstractKeycloakTest {
         testMigrationTo24_0_0(testUserProfileMigration, testLdapUseTruststoreSpiMigration);
     }
 
+    protected void testMigrationTo25_x() {
+        testMigrationTo25_0_0();
+    }
+
     protected void testMigrationTo7_x(boolean supportedAuthzServices) {
         if (supportedAuthzServices) {
             testDecisionStrategySetOnResourceServer();
@@ -1116,7 +1128,7 @@ public abstract class AbstractMigrationTest extends AbstractKeycloakTest {
     protected void testResourceTag() {
         try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
             URI url = suiteContext.getAuthServerInfo().getUriBuilder().path("/auth").build();
-            String response = SimpleHttp.doGet(url.toString(), client).asString();
+            String response = SimpleHttpDefault.doGet(url.toString(), client).asString();
             Matcher m = Pattern.compile("resources/([^/]*)/common").matcher(response);
             assertTrue(m.find());
             assertTrue(m.group(1).matches("[a-zA-Z0-9_\\-.~]{5}"));
@@ -1253,5 +1265,21 @@ public abstract class AbstractMigrationTest extends AbstractKeycloakTest {
         KeysMetadataRepresentation keysMetadata = realm.keys().getKeyMetadata();
         Assert.assertNotNull("Old HS256 key does not exist", keysMetadata.getActive().get(Algorithm.HS256));
         Assert.assertNotNull("New HS256 key does not exist", keysMetadata.getActive().get(Algorithm.HS512));
+    }
+
+    private void testClientAttributes(RealmResource realm) {
+        List<ClientRepresentation> clients = realm.clients().findByClientId("migration-saml-client");
+        Assert.assertEquals(1, clients.size());
+        ClientRepresentation client = clients.get(0);
+        Assert.assertNotNull(client.getAttributes().get("saml.artifact.binding.identifier"));
+        Assert.assertNotNull(client.getAttributes().get("saml_idp_initiated_sso_url_name"));
+        List<String> clientIds = realm.clients().query("saml.artifact.binding.identifier:\"" + client.getAttributes().get("saml.artifact.binding.identifier") + "\"")
+                .stream().map(ClientRepresentation::getClientId)
+                .collect(Collectors.toList());
+        Assert.assertEquals(Collections.singletonList(client.getClientId()), clientIds);
+        clientIds = realm.clients().query("saml_idp_initiated_sso_url_name:\"" + client.getAttributes().get("saml_idp_initiated_sso_url_name") + "\"")
+                .stream().map(ClientRepresentation::getClientId)
+                .collect(Collectors.toList());
+        Assert.assertEquals(Collections.singletonList(client.getClientId()), clientIds);
     }
 }

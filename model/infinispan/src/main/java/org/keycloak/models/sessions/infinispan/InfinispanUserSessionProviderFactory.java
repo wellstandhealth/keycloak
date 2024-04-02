@@ -39,8 +39,6 @@ import org.keycloak.models.sessions.infinispan.changes.sessions.CrossDCLastSessi
 import org.keycloak.models.sessions.infinispan.changes.sessions.CrossDCLastSessionRefreshStoreFactory;
 import org.keycloak.models.sessions.infinispan.changes.sessions.PersisterLastSessionRefreshStore;
 import org.keycloak.models.sessions.infinispan.changes.sessions.PersisterLastSessionRefreshStoreFactory;
-import org.keycloak.models.sessions.infinispan.initializer.CacheInitializer;
-import org.keycloak.models.sessions.infinispan.initializer.DBLockBasedCacheInitializer;
 import org.keycloak.models.sessions.infinispan.remotestore.RemoteCacheInvoker;
 import org.keycloak.models.sessions.infinispan.changes.SessionEntityWrapper;
 import org.keycloak.models.sessions.infinispan.entities.AuthenticatedClientSessionEntity;
@@ -51,7 +49,6 @@ import org.keycloak.models.sessions.infinispan.events.ClientRemovedSessionEvent;
 import org.keycloak.models.sessions.infinispan.events.RealmRemovedSessionEvent;
 import org.keycloak.models.sessions.infinispan.events.RemoveUserSessionsEvent;
 import org.keycloak.models.sessions.infinispan.initializer.InfinispanCacheInitializer;
-import org.keycloak.models.sessions.infinispan.initializer.OfflinePersistentUserSessionLoader;
 import org.keycloak.models.sessions.infinispan.remotestore.RemoteCacheSessionListener;
 import org.keycloak.models.sessions.infinispan.remotestore.RemoteCacheSessionsLoader;
 import org.keycloak.models.sessions.infinispan.util.InfinispanKeyGenerator;
@@ -85,8 +82,6 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
 
     public static final String REMOVE_USER_SESSIONS_EVENT = "REMOVE_USER_SESSIONS_EVENT";
 
-    private boolean preloadOfflineSessionsFromDatabase;
-
     private long offlineSessionCacheEntryLifespanOverride;
 
     private long offlineClientSessionCacheEntryLifespanOverride;
@@ -100,13 +95,29 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
     private InfinispanKeyGenerator keyGenerator;
 
     @Override
-    public InfinispanUserSessionProvider create(KeycloakSession session) {
+    public UserSessionProvider create(KeycloakSession session) {
         InfinispanConnectionProvider connections = session.getProvider(InfinispanConnectionProvider.class);
         Cache<String, SessionEntityWrapper<UserSessionEntity>> cache = connections.getCache(InfinispanConnectionProvider.USER_SESSION_CACHE_NAME);
         Cache<String, SessionEntityWrapper<UserSessionEntity>> offlineSessionsCache = connections.getCache(InfinispanConnectionProvider.OFFLINE_USER_SESSION_CACHE_NAME);
         Cache<UUID, SessionEntityWrapper<AuthenticatedClientSessionEntity>> clientSessionCache = connections.getCache(InfinispanConnectionProvider.CLIENT_SESSION_CACHE_NAME);
         Cache<UUID, SessionEntityWrapper<AuthenticatedClientSessionEntity>> offlineClientSessionsCache = connections.getCache(InfinispanConnectionProvider.OFFLINE_CLIENT_SESSION_CACHE_NAME);
 
+        if (Profile.isFeatureEnabled(Profile.Feature.PERSISTENT_USER_SESSIONS)) {
+            return new PersistentUserSessionProvider(
+                    session,
+                    remoteCacheInvoker,
+                    lastSessionRefreshStore,
+                    offlineLastSessionRefreshStore,
+                    persisterLastSessionRefreshStore,
+                    keyGenerator,
+                    cache,
+                    offlineSessionsCache,
+                    clientSessionCache,
+                    offlineClientSessionsCache,
+                    this::deriveOfflineSessionCacheEntryLifespanMs,
+                    this::deriveOfflineClientSessionCacheEntryLifespanOverrideMs
+            );
+        }
         return new InfinispanUserSessionProvider(
                 session,
                 remoteCacheInvoker,
@@ -118,7 +129,6 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
                 offlineSessionsCache,
                 clientSessionCache,
                 offlineClientSessionsCache,
-                !preloadOfflineSessionsFromDatabase,
                 this::deriveOfflineSessionCacheEntryLifespanMs,
                 this::deriveOfflineClientSessionCacheEntryLifespanOverrideMs
         );
@@ -127,11 +137,6 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
     @Override
     public void init(Config.Scope config) {
         this.config = config;
-        preloadOfflineSessionsFromDatabase = config.getBoolean("preloadOfflineSessionsFromDatabase", false);
-        if (preloadOfflineSessionsFromDatabase && !Profile.isFeatureEnabled(Profile.Feature.OFFLINE_SESSION_PRELOADING)) {
-            throw new RuntimeException("The deprecated offline session preloading feature is disabled in this configuration. Read the migration guide to learn more.");
-        }
-
         offlineSessionCacheEntryLifespanOverride = config.getInt("offlineSessionCacheEntryLifespanOverride", -1);
         offlineClientSessionCacheEntryLifespanOverride = config.getInt("offlineClientSessionCacheEntryLifespanOverride", -1);
     }
@@ -160,8 +165,15 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
                 } else if (event instanceof UserModel.UserRemovedEvent) {
                     UserModel.UserRemovedEvent userRemovedEvent = (UserModel.UserRemovedEvent) event;
 
-                    InfinispanUserSessionProvider provider = (InfinispanUserSessionProvider) userRemovedEvent.getKeycloakSession().getProvider(UserSessionProvider.class, getId());
-                    provider.onUserRemoved(userRemovedEvent.getRealm(), userRemovedEvent.getUser());
+                    UserSessionProvider provider1 = userRemovedEvent.getKeycloakSession().getProvider(UserSessionProvider.class, getId());
+                    if (provider1 instanceof InfinispanUserSessionProvider) {
+                        ((InfinispanUserSessionProvider) provider1).onUserRemoved(userRemovedEvent.getRealm(), userRemovedEvent.getUser());
+                    } else if (provider1 instanceof PersistentUserSessionProvider) {
+                        ((PersistentUserSessionProvider) provider1).onUserRemoved(userRemovedEvent.getRealm(), userRemovedEvent.getUser());
+                    } else {
+                        throw new IllegalStateException("Unknown provider type: " + provider1.getClass());
+                    }
+
                 } else if (event instanceof ResetTimeOffsetEvent) {
                     if (persisterLastSessionRefreshStore != null) {
                         persisterLastSessionRefreshStore.reset();
@@ -203,31 +215,6 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
 
             @Override
             public void run(KeycloakSession session) {
-
-                if (preloadOfflineSessionsFromDatabase) {
-                    // only preload offline-sessions if necessary
-                    log.debug("Start pre-loading userSessions from persistent storage");
-
-                    InfinispanConnectionProvider connections = session.getProvider(InfinispanConnectionProvider.class);
-                    Cache<String, Serializable> workCache = connections.getCache(InfinispanConnectionProvider.WORK_CACHE_NAME);
-                    int defaultStateTransferTimeout = (int) (connections.getCache(InfinispanConnectionProvider.OFFLINE_USER_SESSION_CACHE_NAME)
-                      .getCacheConfiguration().clustering().stateTransfer().timeout() / 1000);
-
-                    InfinispanCacheInitializer ispnInitializer = new InfinispanCacheInitializer(sessionFactory, workCache,
-                            new OfflinePersistentUserSessionLoader(sessionsPerSegment), "offlineUserSessions", sessionsPerSegment, maxErrors,
-                            getStalledTimeoutInSeconds(defaultStateTransferTimeout));
-
-                    // DB-lock to ensure that persistent sessions are loaded from DB just on one DC. The other DCs will load them from remote cache.
-                    CacheInitializer initializer = new DBLockBasedCacheInitializer(session, ispnInitializer);
-
-                    initializer.initCache();
-                    initializer.loadSessions();
-
-                    log.debug("Pre-loading userSessions from persistent storage finished");
-                } else {
-                    log.debug("Skipping pre-loading of userSessions from persistent storage");
-                }
-
                 // Initialize persister for periodically doing bulk DB updates of lastSessionRefresh timestamps of refreshed sessions
                 persisterLastSessionRefreshStore = new PersisterLastSessionRefreshStoreFactory().createAndInit(session, true);
             }
@@ -249,6 +236,8 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
             protected void eventReceived(KeycloakSession session, UserSessionProvider provider, RealmRemovedSessionEvent sessionEvent) {
                 if (provider instanceof InfinispanUserSessionProvider) {
                     ((InfinispanUserSessionProvider) provider).onRealmRemovedEvent(sessionEvent.getRealmId());
+                } else if (provider instanceof PersistentUserSessionProvider) {
+                    ((PersistentUserSessionProvider) provider).onRealmRemovedEvent(sessionEvent.getRealmId());
                 }
             }
 
@@ -261,6 +250,8 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
             protected void eventReceived(KeycloakSession session, UserSessionProvider provider, ClientRemovedSessionEvent sessionEvent) {
                 if (provider instanceof InfinispanUserSessionProvider) {
                     ((InfinispanUserSessionProvider) provider).onClientRemovedEvent(sessionEvent.getRealmId(), sessionEvent.getClientUuid());
+                } else if (provider instanceof PersistentUserSessionProvider) {
+                    ((PersistentUserSessionProvider) provider).onClientRemovedEvent(sessionEvent.getRealmId(), sessionEvent.getClientUuid());
                 }
             }
 
@@ -273,6 +264,8 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
             protected void eventReceived(KeycloakSession session, UserSessionProvider provider, RemoveUserSessionsEvent sessionEvent) {
                 if (provider instanceof InfinispanUserSessionProvider) {
                     ((InfinispanUserSessionProvider) provider).onRemoveUserSessionsEvent(sessionEvent.getRealmId());
+                } else if (provider instanceof PersistentUserSessionProvider) {
+                    ((PersistentUserSessionProvider) provider).onRemoveUserSessionsEvent(sessionEvent.getRealmId());
                 }
             }
 
@@ -428,7 +421,6 @@ public class InfinispanUserSessionProviderFactory implements UserSessionProvider
     @Override
     public Map<String, String> getOperationalInfo() {
         Map<String, String> info = new HashMap<>();
-        info.put("preloadOfflineSessionsFromDatabase", Boolean.toString(preloadOfflineSessionsFromDatabase));
         info.put("offlineSessionCacheEntryLifespanOverride", Long.toString(offlineSessionCacheEntryLifespanOverride));
         info.put("offlineClientSessionCacheEntryLifespanOverride", Long.toString(offlineClientSessionCacheEntryLifespanOverride));
         return info;

@@ -174,6 +174,7 @@ public class DefaultExportImportManager implements ExportImportManager {
         if (rep.isUserManagedAccessAllowed() != null) newRealm.setUserManagedAccessAllowed(rep.isUserManagedAccessAllowed());
         if (rep.isBruteForceProtected() != null) newRealm.setBruteForceProtected(rep.isBruteForceProtected());
         if (rep.isPermanentLockout() != null) newRealm.setPermanentLockout(rep.isPermanentLockout());
+        if (rep.getMaxTemporaryLockouts() != null) newRealm.setMaxTemporaryLockouts(rep.getMaxTemporaryLockouts());
         if (rep.getMaxFailureWaitSeconds() != null) newRealm.setMaxFailureWaitSeconds(rep.getMaxFailureWaitSeconds());
         if (rep.getMinimumQuickLoginWaitSeconds() != null)
             newRealm.setMinimumQuickLoginWaitSeconds(rep.getMinimumQuickLoginWaitSeconds());
@@ -735,6 +736,7 @@ public class DefaultExportImportManager implements ExportImportManager {
         if (rep.isUserManagedAccessAllowed() != null) realm.setUserManagedAccessAllowed(rep.isUserManagedAccessAllowed());
         if (rep.isBruteForceProtected() != null) realm.setBruteForceProtected(rep.isBruteForceProtected());
         if (rep.isPermanentLockout() != null) realm.setPermanentLockout(rep.isPermanentLockout());
+        if (rep.getMaxTemporaryLockouts() != null) realm.setMaxTemporaryLockouts(rep.getMaxTemporaryLockouts());
         if (rep.getMaxFailureWaitSeconds() != null) realm.setMaxFailureWaitSeconds(rep.getMaxFailureWaitSeconds());
         if (rep.getMinimumQuickLoginWaitSeconds() != null)
             realm.setMinimumQuickLoginWaitSeconds(rep.getMinimumQuickLoginWaitSeconds());
@@ -868,6 +870,9 @@ public class DefaultExportImportManager implements ExportImportManager {
         }
         if (rep.getDockerAuthenticationFlow() != null) {
             realm.setDockerAuthenticationFlow(realm.getFlowByAlias(rep.getDockerAuthenticationFlow()));
+        }
+        if (rep.getFirstBrokerLoginFlow() != null) {
+            realm.setFirstBrokerLoginFlow(realm.getFlowByAlias(rep.getFirstBrokerLoginFlow()));
         }
     }
 
@@ -1283,38 +1288,35 @@ public class DefaultExportImportManager implements ExportImportManager {
     }
     public static Map<String, String> importAuthenticationFlows(KeycloakSession session, RealmModel newRealm, RealmRepresentation rep) {
         Map<String, String> mappedFlows = new HashMap<>();
-        if (rep.getAuthenticationFlows() == null) {
-            // assume this is an old version being imported
-            DefaultAuthenticationFlows.migrateFlows(newRealm);
-        } else {
-            if (rep.getAuthenticatorConfig() != null) {
-                for (AuthenticatorConfigRepresentation configRep : rep.getAuthenticatorConfig()) {
-                    if (configRep.getAlias() == null) {
-                        // this can happen only during import json files from keycloak 3.4.0 and older
-                        throw new IllegalStateException("Provided realm contains authenticator config with null alias. "
-                                + "It should be resolved by adding alias to the authenticator config before exporting the realm.");
-                    }
-                    AuthenticatorConfigModel model = RepresentationToModel.toModel(configRep);
-                    newRealm.addAuthenticatorConfig(model);
+
+        if (rep.getAuthenticatorConfig() != null) {
+            for (AuthenticatorConfigRepresentation configRep : rep.getAuthenticatorConfig()) {
+                if (configRep.getAlias() == null) {
+                    // this can happen only during import json files from keycloak 3.4.0 and older
+                    throw new IllegalStateException("Provided realm contains authenticator config with null alias. "
+                            + "It should be resolved by adding alias to the authenticator config before exporting the realm.");
                 }
+                AuthenticatorConfigModel model = RepresentationToModel.toModel(configRep);
+                newRealm.addAuthenticatorConfig(model);
             }
-            if (rep.getAuthenticationFlows() != null) {
-                for (AuthenticationFlowRepresentation flowRep : rep.getAuthenticationFlows()) {
-                    AuthenticationFlowModel model = RepresentationToModel.toModel(flowRep);
-                    String previousId = model.getId();
-                    model = newRealm.addAuthenticationFlow(model);
-                    // store the mapped ids so that clients can reference the correct flow when importing the authenticationFlowBindingOverrides
-                    mappedFlows.put(previousId, model.getId());
-                }
-                for (AuthenticationFlowRepresentation flowRep : rep.getAuthenticationFlows()) {
-                    AuthenticationFlowModel model = newRealm.getFlowByAlias(flowRep.getAlias());
-                    for (AuthenticationExecutionExportRepresentation exeRep : flowRep.getAuthenticationExecutions()) {
-                        AuthenticationExecutionModel execution = toModel(session, newRealm, model, exeRep);
-                        newRealm.addAuthenticatorExecution(execution);
-                    }
+        }
+        if (rep.getAuthenticationFlows() != null) {
+            for (AuthenticationFlowRepresentation flowRep : rep.getAuthenticationFlows()) {
+                AuthenticationFlowModel model = RepresentationToModel.toModel(flowRep);
+                String previousId = model.getId();
+                model = newRealm.addAuthenticationFlow(model);
+                // store the mapped ids so that clients can reference the correct flow when importing the authenticationFlowBindingOverrides
+                mappedFlows.put(previousId, model.getId());
+            }
+            for (AuthenticationFlowRepresentation flowRep : rep.getAuthenticationFlows()) {
+                AuthenticationFlowModel model = newRealm.getFlowByAlias(flowRep.getAlias());
+                for (AuthenticationExecutionExportRepresentation exeRep : flowRep.getAuthenticationExecutions()) {
+                    AuthenticationExecutionModel execution = toModel(session, newRealm, model, exeRep);
+                    newRealm.addAuthenticatorExecution(execution);
                 }
             }
         }
+        DefaultAuthenticationFlows.migrateFlows(newRealm);
         if (rep.getBrowserFlow() == null) {
             AuthenticationFlowModel defaultFlow = newRealm.getFlowByAlias(DefaultAuthenticationFlows.BROWSER_FLOW);
             if (defaultFlow != null) {
@@ -1361,10 +1363,15 @@ public class DefaultExportImportManager implements ExportImportManager {
         } else {
             newRealm.setClientAuthenticationFlow(newRealm.getFlowByAlias(rep.getClientAuthenticationFlow()));
         }
-
-        // Added in 1.7
-        if (newRealm.getFlowByAlias(DefaultAuthenticationFlows.FIRST_BROKER_LOGIN_FLOW) == null) {
-            DefaultAuthenticationFlows.firstBrokerLoginFlow(newRealm, true);
+        if (rep.getFirstBrokerLoginFlow() == null) {
+            AuthenticationFlowModel firstBrokerLoginFlow = newRealm.getFlowByAlias(DefaultAuthenticationFlows.FIRST_BROKER_LOGIN_FLOW);
+            if (firstBrokerLoginFlow == null) {
+                DefaultAuthenticationFlows.firstBrokerLoginFlow(newRealm, true);
+            } else {
+                newRealm.setFirstBrokerLoginFlow(firstBrokerLoginFlow);
+            }
+        } else {
+            newRealm.setFirstBrokerLoginFlow(newRealm.getFlowByAlias(rep.getFirstBrokerLoginFlow()));
         }
 
         // Added in 2.2

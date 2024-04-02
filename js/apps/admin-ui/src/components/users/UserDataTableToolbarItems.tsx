@@ -21,6 +21,8 @@ import { UserDataTableAttributeSearchForm } from "./UserDataTableAttributeSearch
 import DropdownPanel from "../dropdown-panel/DropdownPanel";
 
 type UserDataTableToolbarItemsProps = {
+  searchDropdownOpen: boolean;
+  setSearchDropdownOpen: (open: boolean) => void;
   realm: RealmRepresentation;
   hasSelectedRows: boolean;
   toggleDeleteDialog: () => void;
@@ -40,6 +42,8 @@ type UserDataTableToolbarItemsProps = {
 };
 
 export function UserDataTableToolbarItems({
+  searchDropdownOpen,
+  setSearchDropdownOpen,
   realm,
   hasSelectedRows,
   toggleDeleteDialog,
@@ -59,7 +63,6 @@ export function UserDataTableToolbarItems({
 }: UserDataTableToolbarItemsProps) {
   const { t } = useTranslation();
   const [kebabOpen, setKebabOpen] = useState(false);
-  const [searchDropdownOpen, setSearchDropdownOpen] = useState(false);
 
   const { hasAccess } = useAccess();
 
@@ -94,16 +97,14 @@ export function UserDataTableToolbarItems({
           placeholder={t("searchForUser")}
           aria-label={t("search")}
           value={searchUser}
-          onChange={(_, value) => {
-            setSearchUser(value);
-          }}
-          onSearch={() => {
-            setSearchUser(searchUser);
+          onSearch={(_, _v, attribute) => {
+            setSearchUser(attribute["haswords"]);
             refresh();
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
-              setSearchUser(searchUser);
+              const target = e.target as HTMLInputElement;
+              setSearchUser(target.value);
               refresh();
             }
           }}
@@ -130,13 +131,19 @@ export function UserDataTableToolbarItems({
             setActiveFilters={setActiveFilters}
             profile={profile}
             createAttributeSearchChips={createAttributeSearchChips}
-            searchUserWithAttributes={searchUserWithAttributes}
+            searchUserWithAttributes={() => {
+              searchUserWithAttributes();
+              setSearchDropdownOpen(false);
+            }}
           />
         </DropdownPanel>
         <Button
           icon={<ArrowRightIcon />}
           variant="control"
-          onClick={searchUserWithAttributes}
+          onClick={() => {
+            searchUserWithAttributes();
+            setSearchDropdownOpen(false);
+          }}
           aria-label={t("searchAttributes")}
         />
       </>

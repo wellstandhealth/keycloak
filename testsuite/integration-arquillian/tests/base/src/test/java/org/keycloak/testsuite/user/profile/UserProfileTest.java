@@ -29,6 +29,7 @@ import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.keycloak.userprofile.config.UPConfigUtils.ROLE_ADMIN;
 import static org.keycloak.userprofile.config.UPConfigUtils.ROLE_USER;
+import static org.keycloak.userprofile.config.UPConfigUtils.parseSystemDefaultConfig;
 
 import jakarta.ws.rs.core.Response;
 import java.util.ArrayList;
@@ -42,10 +43,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
 
+import org.hamcrest.Matchers;
 import org.junit.Assert;
 import org.junit.Test;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.common.Profile.Feature;
+import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.component.ComponentModel;
 import org.keycloak.component.ComponentValidationException;
 import org.keycloak.models.Constants;
@@ -79,6 +82,7 @@ import org.keycloak.userprofile.UserProfileContext;
 import org.keycloak.userprofile.UserProfileProvider;
 import org.keycloak.userprofile.ValidationException;
 import org.keycloak.userprofile.config.UPConfigUtils;
+import org.keycloak.userprofile.validator.MultiValueValidator;
 import org.keycloak.userprofile.validator.PersonNameProhibitedCharactersValidator;
 import org.keycloak.userprofile.validator.UsernameIDNHomographValidator;
 import org.keycloak.validate.ValidationError;
@@ -200,7 +204,7 @@ public class UserProfileTest extends AbstractUserProfileTest {
     private static void testCustomAttributeInAnyContext(KeycloakSession session) {
         Map<String, Object> attributes = new HashMap<>();
 
-        attributes.put(UserModel.USERNAME, "profiled-user");
+        attributes.put(UserModel.USERNAME, org.keycloak.models.utils.KeycloakModelUtils.generateId());
         attributes.put(UserModel.FIRST_NAME, "John");
         attributes.put(UserModel.LAST_NAME, "Doe");
         attributes.put(UserModel.EMAIL, org.keycloak.models.utils.KeycloakModelUtils.generateId() + "@keycloak.org");
@@ -232,6 +236,48 @@ public class UserProfileTest extends AbstractUserProfileTest {
     }
 
     @Test
+    public void testEmptyAttributeRemoved() {
+        getTestingClient().server(TEST_REALM_NAME).run((RunOnServer) UserProfileTest::testEmptyAttributeRemoved);
+    }
+
+    private static void testEmptyAttributeRemoved(KeycloakSession session) {
+        Map<String, Object> attributes = new HashMap<>();
+
+        attributes.put(UserModel.USERNAME, org.keycloak.models.utils.KeycloakModelUtils.generateId());
+        attributes.put(UserModel.FIRST_NAME, "John");
+        attributes.put(UserModel.LAST_NAME, "Doe");
+        attributes.put(UserModel.EMAIL, org.keycloak.models.utils.KeycloakModelUtils.generateId() + "@keycloak.org");
+        attributes.put("address", "foo");
+
+        UserProfileProvider provider = getUserProfileProvider(session);
+        UPConfig config = UPConfigUtils.parseSystemDefaultConfig();
+        config.addOrReplaceAttribute(new UPAttribute("address", new UPAttributePermissions(Set.of(), Set.of(ROLE_USER))));
+        provider.setConfiguration(config);
+
+        UserProfile profile = provider.create(UserProfileContext.USER_API, attributes);
+        UserModel user = profile.create();
+
+        // attribute explicitly set with an empty value so we assume it should be removed regardless the `removeAttributes` parameter being set to false
+        attributes.put("address", "");
+        profile = provider.create(UserProfileContext.UPDATE_PROFILE, attributes, user);
+        profile.update(false);
+
+        assertNull(user.getFirstAttribute("address"));
+
+        attributes.put("address", "bar");
+        profile = provider.create(UserProfileContext.UPDATE_PROFILE, attributes, user);
+        profile.update();
+        assertEquals("bar", user.getFirstAttribute("address"));
+
+        // attribute not provided so we assume there is no intention to remove the attribute
+        attributes.remove("address");
+        profile = provider.create(UserProfileContext.UPDATE_PROFILE, attributes, user);
+        profile.update(false);
+
+        assertNotNull(user.getFirstAttribute("address"));
+    }
+
+    @Test
     public void testResolveProfile() {
         getTestingClient().server(TEST_REALM_NAME).run((RunOnServer) UserProfileTest::testResolveProfile);
     }
@@ -241,7 +287,7 @@ public class UserProfileTest extends AbstractUserProfileTest {
 
         Map<String, Object> attributes = new HashMap<>();
 
-        attributes.put(UserModel.USERNAME, "profiled-user");
+        attributes.put(UserModel.USERNAME, org.keycloak.models.utils.KeycloakModelUtils.generateId() + "@keycloak.org");
         attributes.put(UserModel.FIRST_NAME, "John");
         attributes.put(UserModel.LAST_NAME, "Doe");
         attributes.put(UserModel.EMAIL, org.keycloak.models.utils.KeycloakModelUtils.generateId() + "@keycloak.org");
@@ -2169,4 +2215,92 @@ public class UserProfileTest extends AbstractUserProfileTest {
             assertTrue(ve.hasError(LengthValidator.MESSAGE_INVALID_LENGTH));
         }
      }
+
+    @Test
+    public void testMultivalued() {
+        getTestingClient().server(TEST_REALM_NAME).run((RunOnServer) UserProfileTest::testMultivalued);
+    }
+
+    private static void testMultivalued(KeycloakSession session) {
+        UserProfileProvider provider = getUserProfileProvider(session);
+        UPConfig upConfig = UPConfigUtils.parseSystemDefaultConfig();
+        provider.setConfiguration(upConfig);
+        String userName = org.keycloak.models.utils.KeycloakModelUtils.generateId();
+        Map<String, List<String>> attributes = new HashMap<>();
+
+        attributes.put(UserModel.USERNAME, List.of(userName));
+        attributes.put(UserModel.EMAIL, List.of(userName + "@keycloak.org"));
+        attributes.put(UserModel.FIRST_NAME, List.of("Joe"));
+        attributes.put(UserModel.LAST_NAME, List.of("Doe"));
+
+        UserProfile profile = provider.create(UserProfileContext.USER_API, attributes);
+        UserModel user = profile.create();
+        profile = provider.create(UserProfileContext.USER_API, user);
+
+        containsInAnyOrder(profile.getAttributes().nameSet(), UserModel.EMAIL);
+
+        UPAttribute foo = new UPAttribute("foo", new UPAttributePermissions(Set.of(), Set.of(UserProfileConstants.ROLE_ADMIN)));
+        upConfig.addOrReplaceAttribute(foo);
+        provider.setConfiguration(upConfig);
+        List<String> expectedValues = List.of("a", "b");
+        attributes.put("foo", expectedValues);
+        profile = provider.create(UserProfileContext.USER_API, attributes, user);
+        try {
+            profile.update();
+            fail("Should fail because foo attribute is single-valued by default");
+        } catch (ValidationException ve) {
+            assertTrue(ve.hasError(MultiValueValidator.MESSAGE_INVALID_SIZE));
+        }
+
+        foo.setMultivalued(true);
+        upConfig.addOrReplaceAttribute(foo);
+        provider.setConfiguration(upConfig);
+        profile = provider.create(UserProfileContext.USER_API, attributes, user);
+        profile.update();
+        List<String> actualValues = user.getAttributes().get("foo");
+        assertThat(actualValues, Matchers.containsInAnyOrder(expectedValues.toArray()));
+
+        attributes.put("foo", List.of("a", "b", "c"));
+        foo.addValidation(MultiValueValidator.ID, Map.of(MultiValueValidator.KEY_MAX, 2));
+        provider.setConfiguration(upConfig);
+        profile = provider.create(UserProfileContext.USER_API, attributes, user);
+        try {
+            profile.update();
+            fail("Should fail because foo attribute expects 2 values");
+        } catch (ValidationException ve) {
+            assertTrue(ve.hasError(MultiValueValidator.MESSAGE_INVALID_SIZE));
+        }
+
+        attributes.put("foo", List.of("a"));
+        foo.addValidation(MultiValueValidator.ID, Map.of(MultiValueValidator.KEY_MIN, 2, MultiValueValidator.KEY_MAX, 2));
+        provider.setConfiguration(upConfig);
+        profile = provider.create(UserProfileContext.USER_API, attributes, user);
+        try {
+            profile.update();
+            fail("Should fail because foo attribute expects at least 2 values");
+        } catch (ValidationException ve) {
+            assertTrue(ve.hasError(MultiValueValidator.MESSAGE_INVALID_SIZE));
+        }
+
+        attributes.put("foo", List.of("a", "b"));
+        foo.addValidation(MultiValueValidator.ID, Map.of(MultiValueValidator.KEY_MIN, 2, MultiValueValidator.KEY_MAX, 2));
+        provider.setConfiguration(upConfig);
+        profile = provider.create(UserProfileContext.USER_API, attributes, user);
+        profile.update();
+    }
+
+    @Test
+    public void testDefaultConfigWhenComponentConfigIsNotSet() {
+        getTestingClient().server(TEST_REALM_NAME).run((RunOnServer) UserProfileTest::testDefaultConfigWhenComponentConfigIsNotSet);
+    }
+
+    private static void testDefaultConfigWhenComponentConfigIsNotSet(KeycloakSession session) {
+        UserProfileProvider provider = getUserProfileProvider(session);
+        provider.setConfiguration(parseSystemDefaultConfig());
+        RealmModel realm = session.getContext().getRealm();
+        ComponentModel component = realm.getComponentsStream(realm.getId(), UserProfileProvider.class.getName()).findAny().get();
+        component.setConfig(new MultivaluedHashMap<>());
+        realm.updateComponent(component);
+        provider.create(UserProfileContext.USER_API, Map.of());
+    }
 }

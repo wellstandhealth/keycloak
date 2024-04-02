@@ -336,7 +336,7 @@ public class PermissionsTest extends AbstractKeycloakTest {
         }, Resource.REALM, true);
         invoke(new Invocation() {
             public void invoke(RealmResource realm) {
-                realm.deleteSession("nosuch");
+                realm.deleteSession("nosuch", false);
             }
         }, Resource.USER, true);
         invoke(new Invocation() {
@@ -2057,7 +2057,8 @@ public class PermissionsTest extends AbstractKeycloakTest {
     }
 
     private void assertGettersEmpty(RealmRepresentation rep) {
-        assertGettersEmpty(rep, "getRealm", "getAttributesOrEmpty");
+        assertGettersEmpty(rep, "getRealm", "getAttributesOrEmpty", "getDisplayNameHtml", 
+            "getDisplayName", "getDefaultLocale", "getSupportedLocales");
     }
 
     private void assertGettersEmpty(ClientRepresentation rep) {

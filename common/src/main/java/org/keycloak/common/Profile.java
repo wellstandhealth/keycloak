@@ -50,9 +50,7 @@ public class Profile {
 
         ACCOUNT_API("Account Management REST API", Type.DEFAULT),
 
-        @Deprecated
-        ACCOUNT2("Account Management Console 2", Type.DEPRECATED, Feature.ACCOUNT_API),
-        ACCOUNT3("Account Management Console 3", Type.DEFAULT, Feature.ACCOUNT_API),
+        ACCOUNT3("Account Console version 3", Type.DEFAULT, Feature.ACCOUNT_API),
 
         ADMIN_FINE_GRAINED_AUTHZ("Fine-Grained Admin Permissions", Type.PREVIEW),
 
@@ -104,18 +102,20 @@ public class Profile {
 
         TRANSIENT_USERS("Transient users for brokering", Type.EXPERIMENTAL),
 
-        MULTI_SITE("Multi-site support", Type.PREVIEW),
+        MULTI_SITE("Multi-site support", Type.DISABLED_BY_DEFAULT),
 
         CLIENT_TYPES("Client Types", Type.EXPERIMENTAL),
-
-        OFFLINE_SESSION_PRELOADING("Offline session preloading", Type.DEPRECATED),
 
         HOSTNAME_V1("Hostname Options V1", Type.DEFAULT),
         //HOSTNAME_V2("Hostname Options V2", Type.DEFAULT, 2),
 
+        PERSISTENT_USER_SESSIONS("Persistent online user sessions across restarts and upgrades", Type.EXPERIMENTAL),
+        PERSISTENT_USER_SESSIONS_NO_CACHE("No caching for online user sessions when they are persisted", Type.EXPERIMENTAL),
+        
         OID4VC_VCI("Support for the OID4VCI protocol as part of OID4VC.", Type.EXPERIMENTAL),
 
         DECLARATIVE_UI("declarative ui spi", Type.EXPERIMENTAL),
+        ORGANIZATION("Organization support within realms", Type.EXPERIMENTAL),
         ;
 
         private final Type type;
@@ -215,7 +215,7 @@ public class Profile {
 
     private static final Logger logger = Logger.getLogger(Profile.class);
 
-    private static Profile CURRENT;
+    private static volatile Profile CURRENT;
 
     private final ProfileName profileName;
 

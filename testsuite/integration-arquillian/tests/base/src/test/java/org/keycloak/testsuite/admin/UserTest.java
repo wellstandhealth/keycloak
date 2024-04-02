@@ -40,6 +40,7 @@ import org.keycloak.common.util.Base64;
 import org.keycloak.common.util.MultivaluedHashMap;
 import org.keycloak.common.util.ObjectUtil;
 import org.keycloak.credential.CredentialModel;
+import org.keycloak.credential.hash.Pbkdf2Sha512PasswordHashProviderFactory;
 import org.keycloak.events.admin.OperationType;
 import org.keycloak.events.admin.ResourceType;
 import org.keycloak.models.Constants;
@@ -86,6 +87,7 @@ import org.keycloak.testsuite.util.AccountHelper;
 import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.testsuite.util.AdminEventPaths;
 import org.keycloak.testsuite.util.ClientBuilder;
+import org.keycloak.testsuite.util.DefaultPasswordHash;
 import org.keycloak.testsuite.util.GreenMailRule;
 import org.keycloak.testsuite.util.GroupBuilder;
 import org.keycloak.testsuite.util.MailUtils;
@@ -325,6 +327,39 @@ public class UserTest extends AbstractAdminTest {
         }
     }
 
+    @Test
+    public void createDuplicatedUsernameWithEmail() {
+        createUser("user1@local.com", "user1@local.org");
+
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername("user1@local.org");
+        user.setEmail("user2@localhost");
+        try (Response response = realm.users().create(user)) {
+            assertEquals(409, response.getStatus());
+            assertAdminEvents.assertEmpty();
+
+            ErrorRepresentation error = response.readEntity(ErrorRepresentation.class);
+            Assert.assertEquals("User exists with same username", error.getErrorMessage());
+        }
+    }
+
+    @Test
+    public void createDuplicatedEmailWithUsername() {
+        createUser("user1@local.com", "user1@local.org");
+
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername("user2");
+        user.setEmail("user1@local.com");
+
+        try (Response response = realm.users().create(user)) {
+            assertEquals(409, response.getStatus());
+            assertAdminEvents.assertEmpty();
+
+            ErrorRepresentation error = response.readEntity(ErrorRepresentation.class);
+            Assert.assertEquals("User exists with same email", error.getErrorMessage());
+        }
+    }
+
     //KEYCLOAK-14611
     @Test
     public void createDuplicateEmailWithExistingDuplicates() {
@@ -352,7 +387,7 @@ public class UserTest extends AbstractAdminTest {
         try (Response response = realm.users().create(user)) {
             assertEquals(409, response.getStatus());
             ErrorRepresentation error = response.readEntity(ErrorRepresentation.class);
-            Assert.assertEquals("User exists with same email", error.getErrorMessage());
+            Assert.assertEquals("User exists with same username or email", error.getErrorMessage());
             assertAdminEvents.assertEmpty();
         }
     }
@@ -490,8 +525,8 @@ public class UserTest extends AbstractAdminTest {
         CredentialModel credential = fetchCredentials("user_rawpw");
         assertNotNull("Expecting credential", credential);
         PasswordCredentialModel pcm = PasswordCredentialModel.createFromCredentialModel(credential);
-        assertEquals(PasswordPolicy.HASH_ALGORITHM_DEFAULT, pcm.getPasswordCredentialData().getAlgorithm());
-        assertEquals(PasswordPolicy.HASH_ITERATIONS_DEFAULT, pcm.getPasswordCredentialData().getHashIterations());
+        assertEquals(DefaultPasswordHash.getDefaultAlgorithm(), pcm.getPasswordCredentialData().getAlgorithm());
+        assertEquals(DefaultPasswordHash.getDefaultIterations(), pcm.getPasswordCredentialData().getHashIterations());
         assertNotEquals("ABCD", pcm.getPasswordSecretData().getValue());
         assertEquals(CredentialRepresentation.PASSWORD, credential.getType());
     }
@@ -894,7 +929,7 @@ public class UserTest extends AbstractAdminTest {
         createUsers();
 
         Map<String, String> attributes = new HashMap<>();
-        attributes.put("attr", "common");
+        attributes.put("attr", "Common");
         for (int i = 1; i < 10; i++) {
             List<UserRepresentation> users = realm.users().searchByAttributes(i - 1, 1, null, false, mapToSearchQuery(attributes));
             assertEquals(1, users.size());
@@ -1682,9 +1717,11 @@ public class UserTest extends AbstractAdminTest {
             user1.singleAttribute(LDAPConstants.LDAP_ID, "baz");
             updateUser(realm.users().get(user1Id), user1);
             Assert.fail("Not supposed to successfully update user");
-        } catch (BadRequestException bre) {
+        } catch (BadRequestException expected) {
             // Expected
             assertAdminEvents.assertEmpty();
+            ErrorRepresentation error = expected.getResponse().readEntity(ErrorRepresentation.class);
+            Assert.assertEquals("updateReadOnlyAttributesRejectedMessage", error.getErrorMessage());
         }
 
         // The same test as before, but with the case-sensitivity used
@@ -2617,7 +2654,7 @@ public class UserTest extends AbstractAdminTest {
             assertThat(e.getResponse().getStatus(), is(409));
 
             ErrorRepresentation error = e.getResponse().readEntity(ErrorRepresentation.class);
-            Assert.assertEquals("User exists with same username or email", error.getErrorMessage());
+            Assert.assertEquals("User exists with same email", error.getErrorMessage());
             assertAdminEvents.assertEmpty();
         }
     }
@@ -2738,8 +2775,8 @@ public class UserTest extends AbstractAdminTest {
         PasswordCredentialModel credential = PasswordCredentialModel
                 .createFromCredentialModel(fetchCredentials("user_rawpw"));
         assertNotNull("Expecting credential", credential);
-        assertEquals(PasswordPolicy.HASH_ALGORITHM_DEFAULT, credential.getPasswordCredentialData().getAlgorithm());
-        assertEquals(PasswordPolicy.HASH_ITERATIONS_DEFAULT, credential.getPasswordCredentialData().getHashIterations());
+        assertEquals(DefaultPasswordHash.getDefaultAlgorithm(), credential.getPasswordCredentialData().getAlgorithm());
+        assertEquals(DefaultPasswordHash.getDefaultIterations(), credential.getPasswordCredentialData().getHashIterations());
         assertNotEquals("ABCD", credential.getPasswordSecretData().getValue());
         assertEquals(CredentialRepresentation.PASSWORD, credential.getType());
 
@@ -2756,8 +2793,8 @@ public class UserTest extends AbstractAdminTest {
         PasswordCredentialModel updatedCredential = PasswordCredentialModel
                 .createFromCredentialModel(fetchCredentials("user_rawpw"));
         assertNotNull("Expecting credential", updatedCredential);
-        assertEquals(PasswordPolicy.HASH_ALGORITHM_DEFAULT, updatedCredential.getPasswordCredentialData().getAlgorithm());
-        assertEquals(PasswordPolicy.HASH_ITERATIONS_DEFAULT, updatedCredential.getPasswordCredentialData().getHashIterations());
+        assertEquals(DefaultPasswordHash.getDefaultAlgorithm(), updatedCredential.getPasswordCredentialData().getAlgorithm());
+        assertEquals(DefaultPasswordHash.getDefaultIterations(), updatedCredential.getPasswordCredentialData().getHashIterations());
         assertNotEquals("EFGH", updatedCredential.getPasswordSecretData().getValue());
         assertEquals(CredentialRepresentation.PASSWORD, updatedCredential.getType());
     }
@@ -3714,6 +3751,7 @@ public class UserTest extends AbstractAdminTest {
     private UPAttribute createAttributeMetadata(String name) {
         UPAttribute attribute = new UPAttribute();
         attribute.setName(name);
+        attribute.setMultivalued(true);
         UPAttributePermissions permissions = new UPAttributePermissions();
         permissions.setEdit(Set.of("user", "admin"));
         attribute.setPermissions(permissions);

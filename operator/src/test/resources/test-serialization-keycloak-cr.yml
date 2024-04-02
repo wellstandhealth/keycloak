@@ -63,6 +63,12 @@ spec:
     limits:
       cpu: "2"
       memory: "1500M"
+  proxy:
+    headers: forwarded
+  truststores:
+    x:
+      secret:
+        name: my-secret
   unsupported:
     podTemplate:
       metadata:

@@ -44,6 +44,7 @@ import "./user-credentials.css";
 
 type UserCredentialsProps = {
   user: UserRepresentation;
+  setUser: (user: UserRepresentation) => void;
 };
 
 type ExpandableCredentialRepresentation = {
@@ -52,7 +53,57 @@ type ExpandableCredentialRepresentation = {
   isExpanded: boolean;
 };
 
-export const UserCredentials = ({ user }: UserCredentialsProps) => {
+type UserLabelEdit = {
+  status: boolean;
+  rowKey: string;
+};
+
+type UserCredentialsRowProps = {
+  credential: CredentialRepresentation;
+  userId: string;
+  toggleDelete: (credential: CredentialRepresentation) => void;
+  resetPassword: () => void;
+  isUserLabelEdit?: UserLabelEdit;
+  setIsUserLabelEdit: (isUserLabelEdit: UserLabelEdit) => void;
+  refresh: () => void;
+};
+
+const UserCredentialsRow = ({
+  credential,
+  userId,
+  toggleDelete,
+  resetPassword,
+  isUserLabelEdit,
+  setIsUserLabelEdit,
+  refresh,
+}: UserCredentialsRowProps) => (
+  <CredentialRow
+    key={credential.id}
+    credential={credential}
+    toggleDelete={() => toggleDelete(credential)}
+    resetPassword={resetPassword}
+  >
+    <InlineLabelEdit
+      credential={credential}
+      userId={userId}
+      isEditable={
+        (isUserLabelEdit?.status && isUserLabelEdit.rowKey === credential.id) ||
+        false
+      }
+      toggle={() => {
+        setIsUserLabelEdit({
+          status: !isUserLabelEdit?.status,
+          rowKey: credential.id!,
+        });
+        if (isUserLabelEdit?.status) {
+          refresh();
+        }
+      }}
+    />
+  </CredentialRow>
+);
+
+export const UserCredentials = ({ user, setUser }: UserCredentialsProps) => {
   const { t } = useTranslation();
   const { addAlert, addError } = useAlerts();
   const [key, setKey] = useState(0);
@@ -68,10 +119,7 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
   const [selectedCredential, setSelectedCredential] =
     useState<CredentialRepresentation>({});
   const [isResetPassword, setIsResetPassword] = useState(false);
-  const [isUserLabelEdit, setIsUserLabelEdit] = useState<{
-    status: boolean;
-    rowKey: string;
-  }>();
+  const [isUserLabelEdit, setIsUserLabelEdit] = useState<UserLabelEdit>();
 
   const bodyRef = useRef<HTMLTableSectionElement>(null);
   const [state, setState] = useState({
@@ -139,37 +187,6 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
       }
     },
   });
-
-  const Row = ({ credential }: { credential: CredentialRepresentation }) => (
-    <CredentialRow
-      key={credential.id}
-      credential={credential}
-      toggleDelete={() => {
-        setSelectedCredential(credential);
-        toggleDeleteDialog();
-      }}
-      resetPassword={resetPassword}
-    >
-      <InlineLabelEdit
-        credential={credential}
-        userId={user.id!}
-        isEditable={
-          (isUserLabelEdit?.status &&
-            isUserLabelEdit.rowKey === credential.id) ||
-          false
-        }
-        toggle={() => {
-          setIsUserLabelEdit({
-            status: !isUserLabelEdit?.status,
-            rowKey: credential.id!,
-          });
-          if (isUserLabelEdit?.status) {
-            refresh();
-          }
-        }}
-      />
-    </CredentialRow>
-  );
 
   const itemOrder = useMemo(
     () =>
@@ -286,6 +303,13 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
     }
   };
 
+  const onAddRequiredActions = (requiredActions: string[]) => {
+    setUser({
+      ...user,
+      requiredActions: [...(user.requiredActions ?? []), ...requiredActions],
+    });
+  };
+
   const onDragEnd = ({ target }: ReactDragEvent) => {
     if (!(target instanceof HTMLTableRowElement)) {
       return;
@@ -331,6 +355,11 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
     }
   };
 
+  const onToggleDelete = (credential: CredentialRepresentation) => {
+    setSelectedCredential(credential);
+    toggleDeleteDialog();
+  };
+
   const useFederatedCredentials = user.federationLink || user.origin;
   const [credentialTypes, setCredentialTypes] = useState<string[]>([]);
 
@@ -357,6 +386,7 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
         <ResetPasswordDialog
           user={user}
           isResetPassword={isResetPassword}
+          onAddRequiredActions={onAddRequiredActions}
           refresh={refresh}
           onClose={() => setIsOpen(false)}
         />
@@ -471,7 +501,16 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
                     </Td>
                     {groupedCredential.value.length <= 1 &&
                       groupedCredential.value.map((credential) => (
-                        <Row key={credential.id} credential={credential} />
+                        <UserCredentialsRow
+                          key={credential.id}
+                          credential={credential}
+                          userId={user.id!}
+                          toggleDelete={onToggleDelete}
+                          resetPassword={resetPassword}
+                          isUserLabelEdit={isUserLabelEdit}
+                          setIsUserLabelEdit={setIsUserLabelEdit}
+                          refresh={refresh}
+                        />
                       ))}
                   </Tr>
                   {groupedCredential.isExpanded &&
@@ -499,7 +538,15 @@ export const UserCredentials = ({ user }: UserCredentialsProps) => {
                         >
                           {toUpperCase(credential.type!)}
                         </Td>
-                        <Row credential={credential} />
+                        <UserCredentialsRow
+                          credential={credential}
+                          userId={user.id!}
+                          toggleDelete={onToggleDelete}
+                          resetPassword={resetPassword}
+                          isUserLabelEdit={isUserLabelEdit}
+                          setIsUserLabelEdit={setIsUserLabelEdit}
+                          refresh={refresh}
+                        />
                       </Tr>
                     ))}
                 </Fragment>

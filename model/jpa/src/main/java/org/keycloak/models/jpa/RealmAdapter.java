@@ -263,6 +263,16 @@ public class RealmAdapter implements StorageProviderRealmModel, JpaModel<RealmEn
     }
 
     @Override
+    public int getMaxTemporaryLockouts() {
+        return getAttribute("maxTemporaryLockouts", 0);
+    }
+
+    @Override
+    public void setMaxTemporaryLockouts(final int val) {
+        setAttribute("maxTemporaryLockouts", val);
+    }
+
+    @Override
     public int getMaxFailureWaitSeconds() {
         return getAttribute("maxFailureWaitSeconds", 0);
     }
@@ -1556,6 +1566,18 @@ public class RealmAdapter implements StorageProviderRealmModel, JpaModel<RealmEn
     @Override
     public void setDockerAuthenticationFlow(AuthenticationFlowModel flow) {
         realm.setDockerAuthenticationFlow(flow.getId());
+    }
+
+    @Override
+    public AuthenticationFlowModel getFirstBrokerLoginFlow() {
+        String flowId = getAttribute(RealmAttributes.FIRST_BROKER_LOGIN_FLOW_ID);
+        if (flowId == null) return null;
+        return getAuthenticationFlowById(flowId);
+    }
+
+    @Override
+    public void setFirstBrokerLoginFlow(AuthenticationFlowModel flow) {
+        setAttribute(RealmAttributes.FIRST_BROKER_LOGIN_FLOW_ID, flow.getId());
     }
 
     @Override

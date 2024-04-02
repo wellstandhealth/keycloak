@@ -17,23 +17,18 @@
 
 package org.keycloak.quarkus.runtime.integration.jaxrs;
 
-import java.util.HashSet;
-import java.util.Set;
+import io.quarkus.runtime.ShutdownEvent;
+import io.quarkus.runtime.StartupEvent;
+import io.smallrye.common.annotation.Blocking;
 
-import jakarta.enterprise.event.Observes;
-import jakarta.ws.rs.ApplicationPath;
-
-import org.keycloak.config.HostnameOptions;
 import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.platform.Platform;
 import org.keycloak.quarkus.runtime.integration.QuarkusKeycloakSessionFactory;
 import org.keycloak.quarkus.runtime.integration.QuarkusPlatform;
-import org.keycloak.quarkus.runtime.services.resources.DebugHostnameSettingsResource;
 import org.keycloak.services.resources.KeycloakApplication;
 
-import io.quarkus.runtime.ShutdownEvent;
-import io.quarkus.runtime.StartupEvent;
-import io.smallrye.common.annotation.Blocking;
+import jakarta.enterprise.event.Observes;
+import jakarta.ws.rs.ApplicationPath;
 
 @ApplicationPath("/")
 @Blocking
@@ -42,7 +37,6 @@ public class QuarkusKeycloakApplication extends KeycloakApplication {
     void onStartupEvent(@Observes StartupEvent event) {
         QuarkusPlatform platform = (QuarkusPlatform) Platform.getPlatform();
         platform.started();
-        QuarkusPlatform.exitOnError();
         startup();
     }
 
@@ -62,20 +56,4 @@ public class QuarkusKeycloakApplication extends KeycloakApplication {
         // no need to load config provider because we force quarkus impl
     }
 
-    @Override
-    public Set<Object> getSingletons() {
-        return Set.of();
-    }
-
-    @Override
-    public Set<Class<?>> getClasses() {
-        Set<Class<?>> classes = new HashSet<>(super.getClasses());
-
-        classes.add(QuarkusObjectMapperResolver.class);
-        classes.add(CloseSessionHandler.class);
-
-        classes.add(DebugHostnameSettingsResource.class);
-
-        return classes;
-    }
 }

@@ -8,12 +8,12 @@ import {
 } from "@patternfly/react-core";
 import { ExternalLinkSquareAltIcon } from "@patternfly/react-icons";
 import { TFunction } from "i18next";
-import { useKeycloak } from "keycloak-masthead";
 import { useState } from "react";
 import { ErrorOption, useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import {
   UserProfileFields,
+  beerify,
   debeerify,
   setUserProfileServerError,
   useAlerts,
@@ -36,12 +36,11 @@ import { usePromise } from "../utils/usePromise";
 export const PersonalInfo = () => {
   const { t } = useTranslation();
   const context = useEnvironment();
-  const keycloak = useKeycloak();
   const [userProfileMetadata, setUserProfileMetadata] =
     useState<UserProfileMetadata>();
   const [supportedLocales, setSupportedLocales] = useState<string[]>([]);
   const form = useForm<UserRepresentation>({ mode: "onChange" });
-  const { handleSubmit, reset, setError } = form;
+  const { handleSubmit, reset, setValue, setError } = form;
   const { addAlert, addError } = useAlerts();
 
   usePromise(
@@ -54,6 +53,9 @@ export const PersonalInfo = () => {
       setUserProfileMetadata(personalInfo.userProfileMetadata);
       setSupportedLocales(supportedLocales);
       reset(personalInfo);
+      Object.entries(personalInfo.attributes || {}).forEach(([k, v]) =>
+        setValue(`attributes[${beerify(k)}]`, v),
+      );
     },
   );
 
@@ -72,7 +74,7 @@ export const PersonalInfo = () => {
           console.warn("Error(s) loading locale", locale, error);
         }
       });
-      keycloak?.updateToken();
+      context.keycloak.updateToken();
       addAlert(t("accountUpdatedMessage"));
     } catch (error) {
       addError(t("accountUpdatedError").toString());
@@ -116,7 +118,7 @@ export const PersonalInfo = () => {
                 id="update-email-btn"
                 variant="link"
                 onClick={() =>
-                  keycloak?.keycloak.login({ action: "UPDATE_EMAIL" })
+                  context.keycloak.login({ action: "UPDATE_EMAIL" })
                 }
                 icon={<ExternalLinkSquareAltIcon />}
                 iconPosition="right"
@@ -158,7 +160,7 @@ export const PersonalInfo = () => {
                   id="delete-account-btn"
                   variant="danger"
                   onClick={() =>
-                    keycloak?.keycloak.login({
+                    context.keycloak.login({
                       action: "delete_account",
                     })
                   }

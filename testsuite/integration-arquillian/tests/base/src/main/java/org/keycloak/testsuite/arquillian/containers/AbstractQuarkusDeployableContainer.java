@@ -185,14 +185,15 @@ public abstract class AbstractQuarkusDeployableContainer implements DeployableCo
         if ("local".equals(cacheMode)) {
             // Save ~2s for each Quarkus startup, when we know ISPN cluster is empty. See https://github.com/keycloak/keycloak/issues/21033
             commands.add("-Djgroups.join_timeout=10");
+        } else {
+            commands.add("--cache=ispn");
         }
 
         log.debugf("FIPS Mode: %s", configuration.getFipsMode());
 
         // only run build during first execution of the server (if the DB is specified), restarts or when running cluster tests
         if (restart.get() || "ha".equals(cacheMode) || shouldSetUpDb.get() || configuration.getFipsMode() != FipsMode.DISABLED) {
-            commands.removeIf("--optimized"::equals);
-            commands.add("--http-relative-path=/auth");
+            prepareCommandsForRebuilding(commands);
 
             if ("local".equals(cacheMode)) {
                 commands.add("--cache=local");
@@ -209,6 +210,15 @@ public abstract class AbstractQuarkusDeployableContainer implements DeployableCo
         addFeaturesOption(commands);
 
         return commands;
+    }
+
+    /**
+     * When enabling automatic rebuilding of the image, the `--optimized` argument must be removed,
+     * and all original build time parameters must be added.
+     */
+    private static void prepareCommandsForRebuilding(List<String> commands) {
+        commands.removeIf("--optimized"::equals);
+        commands.add("--http-relative-path=/auth");
     }
 
     protected void addFeaturesOption(List<String> commands) {
@@ -235,6 +245,9 @@ public abstract class AbstractQuarkusDeployableContainer implements DeployableCo
                 break;
             }
         }
+
+        // enabling or disabling features requires rebuilding the image
+        prepareCommandsForRebuilding(commands);
 
         commands.add(featuresOption.toString());
     }

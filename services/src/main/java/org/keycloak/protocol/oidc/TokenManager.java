@@ -229,7 +229,9 @@ public class TokenManager {
             throw new OAuthErrorException(OAuthErrorException.INVALID_SCOPE, "Client no longer has requested consent from user");
         }
 
-        clientSessionCtx.setAttribute(OIDCLoginProtocol.NONCE_PARAM, oldToken.getNonce());
+        if (oldToken.getNonce() != null) {
+            clientSessionCtx.setAttribute(OIDCLoginProtocol.NONCE_PARAM, oldToken.getNonce());
+        }
 
         // recreate token.
         AccessToken newToken = createClientAccessToken(session, realm, client, user, userSession, clientSessionCtx);
@@ -412,7 +414,7 @@ public class TokenManager {
         //if scope parameter is not null, remove every scope that is not part of scope parameter
         if (scopeParameter != null && ! scopeParameter.isEmpty()) {
             Set<String> scopeParamScopes = Arrays.stream(scopeParameter.split(" ")).collect(Collectors.toSet());
-            oldTokenScope = Arrays.stream(oldTokenScope.split(" ")).filter(sc -> scopeParamScopes.contains(sc))
+            oldTokenScope = Arrays.stream(oldTokenScope.split(" ")).filter(sc -> scopeParamScopes.contains(sc) || sc.equals(OAuth2Constants.OFFLINE_ACCESS))
                     .collect(Collectors.joining(" "));
         }
 
@@ -427,10 +429,6 @@ public class TokenManager {
         }
 
         validateTokenReuseForRefresh(session, realm, refreshToken, validation);
-
-        int currentTime = Time.currentTime();
-        clientSession.setTimestamp(currentTime);
-        validation.userSession.setLastSessionRefresh(currentTime);
 
         if (refreshToken.getAuthorization() != null) {
             validation.newToken.setAuthorization(refreshToken.getAuthorization());
@@ -984,7 +982,6 @@ public class TokenManager {
 
         AuthenticatedClientSessionModel clientSession = clientSessionCtx.getClientSession();
         token.issuer(clientSession.getNote(OIDCLoginProtocol.ISSUER));
-        token.setNonce(clientSessionCtx.getAttribute(OIDCLoginProtocol.NONCE_PARAM, String.class));
         token.setScope(clientSessionCtx.getScopeString());
 
         // Backwards compatibility behaviour prior step-up authentication was introduced
@@ -993,12 +990,6 @@ public class TokenManager {
             String acr = AuthenticationManager.isSSOAuthentication(clientSession) ? "0" : "1";
             token.setAcr(acr);
         }
-
-        String authTime = session.getNote(AuthenticationManager.AUTH_TIME);
-        if (authTime != null) {
-            token.setAuthTime(Integer.parseInt(authTime));
-        }
-
 
         token.setSessionState(session.getId());
         ClientScopeModel offlineAccessScope = KeycloakModelUtils.getClientScopeByName(realm, OAuth2Constants.OFFLINE_ACCESS);
@@ -1141,24 +1132,29 @@ public class TokenManager {
         }
 
         private void generateRefreshToken(boolean offlineTokenRequested) {
+            refreshToken = new RefreshToken(accessToken);
+            refreshToken.id(KeycloakModelUtils.generateId());
+            refreshToken.issuedNow();
+            int currentTime = Time.currentTime();
+            AuthenticatedClientSessionModel clientSession = clientSessionCtx.getClientSession();
+            clientSession.setTimestamp(currentTime);
+            UserSessionModel userSession = clientSession.getUserSession();
+            userSession.setLastSessionRefresh(currentTime);
+
             if (offlineTokenRequested) {
                 UserSessionManager sessionManager = new UserSessionManager(session);
                 if (!sessionManager.isOfflineTokenAllowed(clientSessionCtx)) {
                     event.error(Errors.NOT_ALLOWED);
                     throw new ErrorResponseException("not_allowed", "Offline tokens not allowed for the user or client", Response.Status.BAD_REQUEST);
                 }
-
-                refreshToken = new RefreshToken(accessToken);
                 refreshToken.type(TokenUtil.TOKEN_TYPE_OFFLINE);
-                if (realm.isOfflineSessionMaxLifespanEnabled())
+                if (realm.isOfflineSessionMaxLifespanEnabled()) {
                     refreshToken.expiration(getExpiration(true));
+                }
                 sessionManager.createOrUpdateOfflineSession(clientSessionCtx.getClientSession(), userSession);
             } else {
-                refreshToken = new RefreshToken(accessToken);
                 refreshToken.expiration(getExpiration(false));
             }
-            refreshToken.id(KeycloakModelUtils.generateId());
-            refreshToken.issuedNow();
         }
 
         private int getExpiration(boolean offline) {
@@ -1192,8 +1188,7 @@ public class TokenManager {
             idToken.issuedNow();
             idToken.issuedFor(accessToken.getIssuedFor());
             idToken.issuer(accessToken.getIssuer());
-            idToken.setNonce(accessToken.getNonce());
-            idToken.setAuthTime(accessToken.getAuthTime());
+            idToken.setNonce(clientSessionCtx.getAttribute(OIDCLoginProtocol.NONCE_PARAM, String.class));
             idToken.setSessionState(accessToken.getSessionState());
             idToken.expiration(accessToken.getExpiration());
 

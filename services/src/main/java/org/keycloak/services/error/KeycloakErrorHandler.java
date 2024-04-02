@@ -6,7 +6,6 @@ import static org.keycloak.services.resources.KeycloakApplication.getSessionFact
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import org.jboss.logging.Logger;
-import org.jboss.resteasy.spi.Failure;
 import org.keycloak.Config;
 import org.keycloak.OAuthErrorException;
 import org.keycloak.forms.login.freemarker.model.UrlBean;
@@ -14,6 +13,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.KeycloakSessionTaskWithResult;
 import org.keycloak.models.KeycloakTransaction;
 import org.keycloak.models.ModelDuplicateException;
+import org.keycloak.models.ModelValidationException;
 import org.keycloak.models.RealmModel;
 import org.keycloak.models.utils.KeycloakModelUtils;
 import org.keycloak.representations.idm.OAuth2ErrorRepresentation;
@@ -32,6 +32,8 @@ import jakarta.ws.rs.WebApplicationException;
 import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.ext.ExceptionMapper;
+import jakarta.ws.rs.ext.Provider;
+
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Locale;
@@ -40,6 +42,7 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+@Provider
 public class KeycloakErrorHandler implements ExceptionMapper<Throwable> {
 
     private static final Logger logger = Logger.getLogger(KeycloakErrorHandler.class);
@@ -119,11 +122,8 @@ public class KeycloakErrorHandler implements ExceptionMapper<Throwable> {
             WebApplicationException ex = (WebApplicationException) throwable;
             status = ex.getResponse().getStatus();
         }
-        if (throwable instanceof Failure) {
-            Failure f = (Failure) throwable;
-            status = f.getErrorCode();
-        }
-        if (throwable instanceof JsonProcessingException) {
+        if (throwable instanceof JsonProcessingException
+                || throwable instanceof ModelValidationException) {
             status = Response.Status.BAD_REQUEST.getStatusCode();
         }
 

@@ -74,6 +74,7 @@ public class CachedRealm extends AbstractExtendableRevisioned {
     //--- brute force settings
     protected boolean bruteForceProtected;
     protected boolean permanentLockout;
+    protected int maxTemporaryLockouts;
     protected int maxFailureWaitSeconds;
     protected int minimumQuickLoginWaitSeconds;
     protected int waitIncrementSeconds;
@@ -143,6 +144,7 @@ public class CachedRealm extends AbstractExtendableRevisioned {
     protected AuthenticationFlowModel resetCredentialsFlow;
     protected AuthenticationFlowModel clientAuthenticationFlow;
     protected AuthenticationFlowModel dockerAuthenticationFlow;
+    protected AuthenticationFlowModel firstBrokerLoginFlow;
 
     protected boolean eventsEnabled;
     protected long eventsExpiration;
@@ -193,6 +195,7 @@ public class CachedRealm extends AbstractExtendableRevisioned {
         //--- brute force settings
         bruteForceProtected = model.isBruteForceProtected();
         permanentLockout = model.isPermanentLockout();
+        maxTemporaryLockouts = model.getMaxTemporaryLockouts();
         maxFailureWaitSeconds = model.getMaxFailureWaitSeconds();
         minimumQuickLoginWaitSeconds = model.getMinimumQuickLoginWaitSeconds();
         waitIncrementSeconds = model.getWaitIncrementSeconds();
@@ -300,6 +303,7 @@ public class CachedRealm extends AbstractExtendableRevisioned {
         resetCredentialsFlow = model.getResetCredentialsFlow();
         clientAuthenticationFlow = model.getClientAuthenticationFlow();
         dockerAuthenticationFlow = model.getDockerAuthenticationFlow();
+        firstBrokerLoginFlow = model.getFirstBrokerLoginFlow();
 
         model.getComponentsStream().forEach(component ->
             componentsByParentAndType.add(component.getParentId() + component.getProviderType(), component)
@@ -370,6 +374,10 @@ public class CachedRealm extends AbstractExtendableRevisioned {
 
     public boolean isPermanentLockout() {
         return permanentLockout;
+    }
+
+    public int getMaxTemporaryLockouts() {
+        return maxTemporaryLockouts;
     }
 
     public int getMaxFailureWaitSeconds() {
@@ -679,6 +687,10 @@ public class CachedRealm extends AbstractExtendableRevisioned {
 
     public AuthenticationFlowModel getDockerAuthenticationFlow() {
         return dockerAuthenticationFlow;
+    }
+
+    public AuthenticationFlowModel getFirstBrokerLoginFlow() {
+        return firstBrokerLoginFlow;
     }
 
     public List<String> getDefaultGroups() {

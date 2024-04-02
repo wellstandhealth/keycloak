@@ -52,6 +52,7 @@ import org.keycloak.userprofile.config.UPConfigUtils;
 import org.keycloak.representations.userprofile.config.UPGroup;
 import org.keycloak.userprofile.validator.AttributeRequiredByMetadataValidator;
 import org.keycloak.userprofile.validator.ImmutableAttributeValidator;
+import org.keycloak.userprofile.validator.MultiValueValidator;
 import org.keycloak.util.JsonSerialization;
 import org.keycloak.validate.AbstractSimpleValidator;
 import org.keycloak.validate.ValidatorConfig;
@@ -341,6 +342,13 @@ public class DeclarativeUserProfileProvider implements UserProfileProvider {
 
             validators.add(new AttributeValidatorMetadata(ImmutableAttributeValidator.ID));
 
+            // make sure managed attributes single-valued are constrained to a single value
+            if (!attrConfig.isMultivalued() && validators.stream().map(AttributeValidatorMetadata::getValidatorId).noneMatch(MultiValueValidator.ID::equals)) {
+                validators.add(new AttributeValidatorMetadata(MultiValueValidator.ID, ValidatorConfig.builder()
+                        .config("max", "1")
+                        .build()));
+            }
+
             if (isBuiltInAttribute(attributeName)) {
                 // make sure username and email are writable if permissions are not set
                 if (permissions == null || permissions.isEmpty()) {
@@ -391,13 +399,15 @@ public class DeclarativeUserProfileProvider implements UserProfileProvider {
                             .addReadCondition(readAllowed)
                             .addWriteCondition(writeAllowed)
                             .addValidators(validators)
-                            .setRequired(required);
+                            .setRequired(required)
+                            .setMultivalued(attrConfig.isMultivalued());
                 }
             } else {
                 decoratedMetadata.addAttribute(attributeName, guiOrder, validators, selector, writeAllowed, required, readAllowed)
                         .addAnnotations(annotations)
                         .setAttributeDisplayName(attrConfig.getDisplayName())
-                        .setAttributeGroupMetadata(groupMetadata);
+                        .setAttributeGroupMetadata(groupMetadata)
+                        .setMultivalued(attrConfig.isMultivalued());
             }
         }
 
@@ -449,16 +459,18 @@ public class DeclarativeUserProfileProvider implements UserProfileProvider {
     /**
      * Get parsed config file configured in model. Default one used if not configured.
      */
-    protected UPConfig getParsedConfig(String rawConfig) {
-        if (!isBlank(rawConfig)) {
-            try {
-                return UPConfigUtils.parseConfig(rawConfig);
-            } catch (IOException e) {
-                throw new RuntimeException("UserProfile configuration for realm '" + session.getContext().getRealm().getName() + "' is invalid:" + e.getMessage(), e);
-            }
+    protected UPConfig parseConfigOrDefault(ComponentModel component) {
+        String rawConfig = component.get(UP_COMPONENT_CONFIG_KEY);
+
+        if (isBlank(rawConfig)) {
+            return parsedDefaultRawConfig;
         }
 
-        return null;
+        try {
+            return UPConfigUtils.parseConfig(rawConfig);
+        } catch (IOException e) {
+            throw new RuntimeException("UserProfile configuration for realm '" + session.getContext().getRealm().getName() + "' is invalid:" + e.getMessage(), e);
+        }
     }
 
     /**
@@ -482,22 +494,27 @@ public class DeclarativeUserProfileProvider implements UserProfileProvider {
     }
 
     private UPConfig getConfigFromComponentModel(ComponentModel model) {
-        if (model == null)
-            return null;
+        UPConfig cached = getParsedConfigFromCache(model);
 
-        UPConfig cfg = model.getNote(PARSED_UP_CONFIG_COMPONENT_KEY);
-        if (cfg != null) {
-            return cfg;
+        if (cached == null) {
+            cached = parseAndCacheConfig(model);
         }
 
-        String rawConfig = model.get(UP_COMPONENT_CONFIG_KEY);
-        if (rawConfig == null) {
+        return cached;
+    }
+
+    private UPConfig parseAndCacheConfig(ComponentModel model) {
+        UPConfig cfg = parseConfigOrDefault(model);
+        model.setNote(PARSED_UP_CONFIG_COMPONENT_KEY, cfg);
+        return cfg;
+    }
+
+    private UPConfig getParsedConfigFromCache(ComponentModel component) {
+        if (component == null) {
             return null;
-        } else {
-            cfg = getParsedConfig(rawConfig);
-            model.setNote(PARSED_UP_CONFIG_COMPONENT_KEY, cfg);
-            return cfg;
         }
+
+        return component.getNote(PARSED_UP_CONFIG_COMPONENT_KEY);
     }
 
     private void removeConfigJsonFromComponentModel(ComponentModel model) {

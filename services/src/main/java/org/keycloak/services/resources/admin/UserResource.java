@@ -71,13 +71,13 @@ import org.keycloak.representations.idm.UserRepresentation;
 import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.keycloak.services.ErrorResponse;
 import org.keycloak.services.ErrorResponseException;
-import org.keycloak.services.ForbiddenException;
 import org.keycloak.services.ServicesLogger;
 import org.keycloak.services.Urls;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.BruteForceProtector;
 import org.keycloak.services.managers.UserConsentManager;
 import org.keycloak.services.managers.UserSessionManager;
+import org.keycloak.services.messages.Messages;
 import org.keycloak.services.resources.KeycloakOpenAPI;
 import org.keycloak.services.resources.LoginActionsService;
 import org.keycloak.services.resources.admin.permissions.AdminPermissionEvaluator;
@@ -92,6 +92,7 @@ import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.ForbiddenException;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.POST;
@@ -159,7 +160,7 @@ public class UserResource {
         this.adminEvent = adminEvent.resource(ResourceType.USER);
         this.headers = session.getContext().getRequestHeaders();
     }
-    
+
     /**
      * Update the user
      *
@@ -241,6 +242,12 @@ public class UserResource {
         } catch (ValidationException pve) {
             List<ErrorRepresentation> errors = new ArrayList<>();
             for (ValidationException.Error error : pve.getErrors()) {
+                // some messages are managed directly as before
+                switch (error.getMessage()) {
+                    case Messages.MISSING_USERNAME -> throw ErrorResponse.error("User name is missing", Response.Status.BAD_REQUEST);
+                    case Messages.USERNAME_EXISTS -> throw ErrorResponse.exists("User exists with same username");
+                    case Messages.EMAIL_EXISTS -> throw ErrorResponse.exists("User exists with same email");
+                }
                 errors.add(new ErrorRepresentation(error.getAttribute(), error.getMessage(), error.getMessageParameters()));
             }
 

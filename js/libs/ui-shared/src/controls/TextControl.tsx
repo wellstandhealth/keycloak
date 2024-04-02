@@ -9,15 +9,17 @@ import {
 
 import { KeycloakTextInput } from "../keycloak-text-input/KeycloakTextInput";
 import { FormLabel } from "./FormLabel";
+import { ReactNode } from "react";
 
 export type TextControlProps<
   T extends FieldValues,
   P extends FieldPath<T> = FieldPath<T>,
 > = UseControllerProps<T, P> &
-  TextInputProps & {
+  Omit<TextInputProps, "name" | "isRequired" | "required"> & {
     label: string;
-    labelIcon?: string;
+    labelIcon?: string | ReactNode;
     isDisabled?: boolean;
+    helperText?: string;
   };
 
 export const TextControl = <
@@ -42,6 +44,7 @@ export const TextControl = <
       labelIcon={labelIcon}
       isRequired={required}
       error={fieldState.error}
+      helperText={props.helperText}
     >
       <KeycloakTextInput
         isRequired={required}

@@ -220,7 +220,7 @@ public class VerifyProfileTest extends AbstractTestRealmKeycloakTest {
         verifyProfilePage.assertCurrent();
         String htmlFormId="kc-update-profile-form";
 
-        //assert fields and groups location in form
+        //assert fields and groups location in form, attributes without a group appear first
         Assert.assertTrue(
                 driver.findElement(
                         By.cssSelector("form#"+htmlFormId+" > div:nth-child(1) > div:nth-child(2) > input#lastName")
