@@ -1,7 +1,6 @@
 steps:
   - name: 'maven:3-openjdk-18-slim'
-    id: 'java-build'
-    waitFor: [ 'keycloak-java-build' ]
+    id: 'keycloak-java-build'
     args: [ 'mvn', '-D', 'skipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-P', 'distribution' ]
 
   - name: gcr.io/cloud-builders/docker
