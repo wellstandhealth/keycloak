@@ -1,5 +1,5 @@
 steps:
-  - name: 'maven:3-openjdk-18-slim'
+  - name: 'maven:3-openjdk-17'
     id: 'keycloak-java-build'
     args: [ '/workspace/mvnw', '-DskipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-Pdistribution' ]
 
