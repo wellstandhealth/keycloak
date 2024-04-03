@@ -14,16 +14,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.keycloak.quarkus.deployment;
 
-package org.keycloak.models;
+import org.keycloak.quarkus.runtime.configuration.mappers.ManagementPropertyMappers;
 
-public interface OrganizationModel {
+import java.util.function.BooleanSupplier;
 
-    String USER_ORGANIZATION_ATTRIBUTE = "kc.org";
-
-    String getId();
-
-    void setName(String name);
-
-    String getName();
+public class IsManagementEnabled implements BooleanSupplier {
+    @Override
+    public boolean getAsBoolean() {
+        return ManagementPropertyMappers.isManagementEnabled();
+    }
 }
