@@ -26,12 +26,9 @@
             <div id="kc-info-message">
                 <#if logoutConfirm.skipLink>
                 <#else>
-                    <#if (client.baseUrl)?has_content>
-                        <p><a href="${client.baseUrl}">${kcSanitize(msg("backToApplication"))?no_esc}</a></p>
-                    </#if>
+                    <p><a onclick="history.back()">${kcSanitize(msg("backToApplication"))?no_esc}</a></p>
                 </#if>
             </div>
-
             <div class="clearfix"></div>
         </div>
     </#if>
