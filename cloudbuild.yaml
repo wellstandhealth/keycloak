@@ -11,14 +11,15 @@ steps:
     args: [ '/workspace/mvnw', '-DskipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-Pdistribution' ]
 
   - name: google/cloud-sdk:slim
-    id: 'initialize'
+    waitFor: ['keycloak-java-build']
+    id: 'update-tarball'
     script: |
       #!/usr/bin/env bash
       cd /workspace/ && ./scripts/update_tarball.sh
 
   - name: gcr.io/cloud-builders/docker
     entrypoint: /bin/bash
-    waitFor: ['keycloak-java-build']
+    waitFor: ['update-tarball']
     id: 'keycloak-docker-build'
     args: [ '-c', 'docker build -t us-docker.pkg.dev/non-production-381217/wellstand-docker/keycloak:24.0.$(cat /workspace/keycloak-build-number.txt) /workspace' ]
 
