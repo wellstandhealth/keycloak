@@ -10,6 +10,12 @@ steps:
     id: 'keycloak-java-build'
     args: [ '/workspace/mvnw', '-DskipTests', 'clean', 'install', '-f', '/workspace/pom.xml', '-Pdistribution' ]
 
+  - name: google/cloud-sdk:slim
+    id: 'initialize'
+    script: |
+      #!/usr/bin/env bash
+      cd /workspace/ && ./scripts/update_tarball.sh
+
   - name: gcr.io/cloud-builders/docker
     entrypoint: /bin/bash
     waitFor: ['keycloak-java-build']

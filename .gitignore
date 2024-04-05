@@ -102,4 +102,10 @@ node_modules
 .sdkmanrc
 
 # JENV
-.java-version
+.java-version!/Dockerfile
+
+Dockerfile
+google-build-key.json
+keycloak-build-number.txt
+keycloak-build-number-last.txt
+
